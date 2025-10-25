@@ -1,6 +1,9 @@
 package basicmod;
 
 import basemod.BaseMod;
+import basemod.ModLabel;
+import basemod.ModPanel;
+import basemod.ModSlider;
 import basemod.interfaces.AddAudioSubscriber;
 import basemod.interfaces.EditKeywordsSubscriber;
 import basemod.interfaces.EditStringsSubscriber;
@@ -18,18 +21,23 @@ import com.badlogic.gdx.utils.GdxRuntimeException;
 import com.evacipated.cardcrawl.modthespire.Loader;
 import com.evacipated.cardcrawl.modthespire.ModInfo;
 import com.evacipated.cardcrawl.modthespire.Patcher;
+import com.evacipated.cardcrawl.modthespire.lib.SpireConfig;
 import com.evacipated.cardcrawl.modthespire.lib.SpireInitializer;
 import com.google.gson.Gson;
 import com.megacrit.cardcrawl.core.Settings;
+import com.megacrit.cardcrawl.dungeons.AbstractDungeon;
+import com.megacrit.cardcrawl.helpers.FontHelper;
 import com.megacrit.cardcrawl.localization.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.scannotation.AnnotationDB;
 
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.function.Consumer;
 
 @SpireInitializer
 public class BasicMod implements
@@ -42,6 +50,13 @@ public class BasicMod implements
     static { loadModInfo(); }
     private static final String resourcesFolder = checkResourcesPath();
     public static final Logger logger = LogManager.getLogger(modID); //Used to output to the console.
+
+    private static SpireConfig config;
+    public static float characterScale = 1.0F;
+    private static ModLabel scaleLabel;
+    private static boolean scaleUpdated = false;
+    private static boolean scaleSaved = false;
+    private static float timeUntilSave = 1.0F;
 
     //This is used to prefix the IDs of various objects like cards and relics,
     //to avoid conflicts between different mods using the same name for things.
@@ -61,14 +76,80 @@ public class BasicMod implements
 
     @Override
     public void receivePostInitialize() {
-        //This loads the image used as an icon in the in-game mods menu.
         Texture badgeTexture = TextureLoader.getTexture(imagePath("badge.png"));
-        //Set up the mod information displayed in the in-game mods menu.
-        //The information used is taken from your pom.xml file.
 
-        //If you want to set up a config panel, that will be done here.
-        //You can find information about this on the BaseMod wiki page "Mod Config and Panel".
-        BaseMod.registerModBadge(badgeTexture, info.Name, GeneralUtils.arrToString(info.Authors), info.Description, null);
+        config = tryCreateConfig();
+        if (config != null && config.has("characterScale")) {
+            characterScale = config.getFloat("characterScale");
+        }
+
+        ModPanel panel = new ModPanel();
+
+        scaleLabel = new ModLabel(
+                "",
+                900.0F,
+                480.0F,
+                Settings.CREAM_COLOR,
+                FontHelper.charDescFont,
+                panel,
+                BasicMod::updateScaleLabel
+        );
+
+        ModSlider scaleSlider = new ModSlider(
+                "Character Size: ",
+                720.0F,
+                480.0F,
+                2000.0F,
+                "%",
+                panel,
+                BasicMod::updateScaleFromSlider
+        );
+        scaleSlider.setValue(characterScale * 1000.0F);
+
+        panel.addUIElement(scaleSlider);
+        panel.addUIElement(scaleLabel);
+        BaseMod.registerModBadge(badgeTexture, info.Name, GeneralUtils.arrToString(info.Authors), info.Description, panel);
+    }
+
+    private static void updateScaleFromSlider(ModSlider s) {
+        characterScale = s.value * 10.0F;
+        scaleUpdated = true;
+        scaleSaved = false;
+        timeUntilSave = 1.0F;
+    }
+
+    private static void updateScaleLabel(ModLabel l) {
+        if (scaleUpdated) {
+            scaleUpdated = false;
+        }
+
+        if (!scaleSaved) {
+            timeUntilSave -= Gdx.graphics.getDeltaTime();
+            if (timeUntilSave <= 0.0F) {
+                scaleSaved = true;
+                if (config != null) {
+                    config.setFloat("characterScale", characterScale);
+                    trySaveConfig(config);
+                }
+            }
+        }
+    }
+
+    private static SpireConfig tryCreateConfig() {
+        try {
+            return new SpireConfig(modID, "Config");
+        } catch (IOException e) {
+            logger.warn(e);
+            return null;
+        }
+    }
+
+    private static void trySaveConfig(SpireConfig config) {
+        try {
+            config.save();
+        } catch (IOException e) {
+            logger.warn(e);
+        }
     }
 
     /*----------Localization----------*/
@@ -82,14 +163,9 @@ public class BasicMod implements
 
     public static final Map<String, KeywordInfo> keywords = new HashMap<>();
 
+
     @Override
     public void receiveEditStrings() {
-        /*
-            First, load the default localization.
-            Then, if the current language is different, attempt to load localization for that language.
-            This results in the default localization being used for anything that might be missing.
-            The same process is used to load keywords slightly below.
-        */
         loadLocalization(defaultLanguage); //no exception catching for default localization; you better have at least one that works.
         if (!defaultLanguage.equals(getLangString())) {
             try {
@@ -99,6 +175,7 @@ public class BasicMod implements
                 e.printStackTrace();
             }
         }
+
     }
 
     private void loadLocalization(String lang) {
