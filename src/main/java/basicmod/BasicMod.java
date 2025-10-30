@@ -58,6 +58,10 @@ public class BasicMod implements
     private static boolean scaleSaved = false;
     private static float timeUntilSave = 1.0F;
 
+    public static float enemyScale = 1.0F;
+    private static boolean enemyScaleSaved = true;
+    private static float enemyTimeUntilSave = 1.0F;
+
     //This is used to prefix the IDs of various objects like cards and relics,
     //to avoid conflicts between different mods using the same name for things.
     public static String makeID(String id) {
@@ -81,6 +85,9 @@ public class BasicMod implements
         config = tryCreateConfig();
         if (config != null && config.has("characterScale")) {
             characterScale = config.getFloat("characterScale");
+        }
+        if (config != null && config.has("enemyScale")) {
+            enemyScale = config.getFloat("enemyScale");
         }
 
         ModPanel panel = new ModPanel();
@@ -106,9 +113,53 @@ public class BasicMod implements
         );
         scaleSlider.setValue(characterScale * 1000.0F);
 
+        ModLabel enemyScaleLabel = new ModLabel(
+                "",
+                900.0F,
+                420.0F,
+                Settings.CREAM_COLOR,
+                FontHelper.charDescFont,
+                panel,
+                BasicMod::updateEnemyScaleLabel
+        );
+
+        ModSlider enemyScaleSlider = new ModSlider(
+                "Enemy Size: ",
+                720.0F,
+                420.0F,
+                2000.0F,
+                "%",
+                panel,
+                BasicMod::updateEnemyScaleFromSlider
+        );
+        enemyScaleSlider.setValue(enemyScale * 1000.0F);
+
         panel.addUIElement(scaleSlider);
         panel.addUIElement(scaleLabel);
+        panel.addUIElement(enemyScaleSlider);
+        panel.addUIElement(enemyScaleLabel);
         BaseMod.registerModBadge(badgeTexture, info.Name, GeneralUtils.arrToString(info.Authors), info.Description, panel);
+    }
+
+    private static void updateEnemyScaleFromSlider(ModSlider s) {
+        enemyScale = s.value * 10.0F;
+        enemyScaleSaved = false;
+        enemyTimeUntilSave = 1.0F;
+    }
+
+    // 라벨 업데이트
+    private static void updateEnemyScaleLabel(ModLabel l) {
+
+        if (!enemyScaleSaved) {
+            enemyTimeUntilSave -= Gdx.graphics.getDeltaTime();
+            if (enemyTimeUntilSave <= 0.0F) {
+                enemyScaleSaved = true;
+                if (config != null) {
+                    config.setFloat("enemyScale", enemyScale);
+                    trySaveConfig(config);
+                }
+            }
+        }
     }
 
     private static void updateScaleFromSlider(ModSlider s) {
